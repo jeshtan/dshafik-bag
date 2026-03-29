@@ -50,6 +50,7 @@ if (class_exists(ClassTransformer::class)) {
             PhpPropertyNode $phpPropertyNode,
             PhpClassNode $phpClassNode,
             TypeScriptNode $type,
+            TransformationContext $context,
         ): bool {
             return false;
         }
