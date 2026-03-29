@@ -5,29 +5,37 @@ declare(strict_types=1);
 use Bag\TypeScript\BagTransformer;
 use Bag\TypeScript\Reflection\BagReflectionProperty;
 use Bag\TypeScript\Reflection\BagReflectionUnionType;
-use Spatie\TypeScriptTransformer\TypeScriptTransformerConfig;
+use Spatie\TypeScriptTransformer\Data\TransformationContext;
+use Spatie\TypeScriptTransformer\Data\WritingContext;
+use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
+use Spatie\TypeScriptTransformer\Transformed\Transformed;
+use Spatie\TypeScriptTransformer\Transformers\ClassTransformer;
 use Tests\Fixtures\Values\TypeScriptBag;
 
-beforeEach()->skip(!class_exists(TypeScriptTransformerConfig::class));
+beforeEach()->skip(!class_exists(ClassTransformer::class));
 
-if (class_exists(TypeScriptTransformerConfig::class)) {
+if (class_exists(ClassTransformer::class)) {
     covers(BagTransformer::class);
 }
 covers(BagReflectionProperty::class, BagReflectionUnionType::class);
 
 test('it transforms bags to typescript', function () {
-    $config = TypeScriptTransformerConfig::create();
-    $transformer = new BagTransformer($config);
+    $transformer = new BagTransformer();
+    $phpClassNode = PhpClassNode::fromClassString(TypeScriptBag::class);
+    $context = TransformationContext::createFromPhpClass($phpClassNode);
 
-    $type = $transformer->transform(new \ReflectionClass(TypeScriptBag::class), 'Typed');
+    $result = $transformer->transform($phpClassNode, $context);
 
-    expect($type->transformed)->toBe(
-        <<<TYPESCRIPT
-        {
-        name: string;
-        age?: number;
-        email_address?: string | null;
-        }
-        TYPESCRIPT
+    expect($result)->toBeInstanceOf(Transformed::class);
+
+    $writingContext = new WritingContext([]);
+    $output = $result->getNode()->write($writingContext);
+
+    expect($output)->toBe(
+        "type TypeScriptBag = {\n" .
+        "name: string,\n" .
+        "age?: number,\n" .
+        "email_address?: string | null,\n" .
+        "};"
     );
 });

@@ -17,7 +17,7 @@ jobs:
       matrix:
         php-versions: [ '8.2', '8.3', '8.4' ]
         ignore-platform-reqs: [ '--ignore-platform-reqs', '' ]
-        laravel-versions: [ '^10', '^11', '^12' ]
+        laravel-versions: [ '^10', '^11', '^12', '^13' ]
         exclude:
           - php-versions: '8.2'
             ignore-platform-reqs: '--ignore-platform-reqs'
@@ -27,6 +27,8 @@ jobs:
             ignore-platform-reqs: '--ignore-platform-reqs'
           - php-versions: '8.4'
             laravel-versions: '^10'
+          - php-versions: '8.2'
+            laravel-versions: '^13'
       fail-fast: false
 
     steps:
