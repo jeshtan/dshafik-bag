@@ -17,7 +17,7 @@ jobs:
       matrix:
         php-versions: [ '8.2', '8.3', '8.4' ]
         ignore-platform-reqs: [ '--ignore-platform-reqs', '' ]
-        laravel-versions: [ '^10', '^11', '^12' ]
+        laravel-versions: [ '^10', '^11', '^12', '^13' ]
         exclude:
           - php-versions: '8.2'
             ignore-platform-reqs: '--ignore-platform-reqs'
@@ -27,6 +27,8 @@ jobs:
             ignore-platform-reqs: '--ignore-platform-reqs'
           - php-versions: '8.4'
             laravel-versions: '^10'
+          - php-versions: '8.2'
+            laravel-versions: '^13'
       fail-fast: false
 
     steps:
@@ -46,7 +48,7 @@ jobs:
         run: 'sed -i -e "s/\"laravel\/framework\": \".*\"/\"laravel\/framework\": \"${{ matrix.laravel-versions }}\"/g" composer.json'
 
       - name: Install dependencies with composer
-        run: composer install --no-ansi --no-interaction --no-progress ${{ matrix.ignore-platform-reqs }} && composer require barryvdh/laravel-debugbar spatie/laravel-typescript-transformer --dev
+        run: composer install --no-ansi --no-interaction --no-progress ${{ matrix.ignore-platform-reqs }} && composer require barryvdh/laravel-debugbar "spatie/laravel-typescript-transformer:^2.0" --dev
 
       - name: Run tests with pest
         run: vendor/bin/pest --parallel --coverage --min=80
