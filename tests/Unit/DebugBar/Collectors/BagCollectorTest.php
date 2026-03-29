@@ -35,10 +35,10 @@ test('it collects a bag', function () {
         ->toBe(1)
         ->and($collected['messages'][0]['message'])
         ->toMatch('/Tests\\\Fixtures\\\Values\\\TestBag \{#\d+\n\s+\+name: "Davey Shafik"\n\s+\+age: 40\n\s+\+email: "davey@php\.net"\n\s*\}/')
-        ->and(
-            $collected['messages'][0]['message_html'] === null ||
-            is_string($collected['messages'][0]['message_html'])
-        )->toBeTrue()
+        ->and($collected['messages'][0]['message_html'])
+        ->toBeNull()
+        ->or()
+        ->toBeString()
         ->and($collected['messages'][0]['is_string'])
         ->toBeFalse()
         ->and($collected['messages'][0]['label'])
