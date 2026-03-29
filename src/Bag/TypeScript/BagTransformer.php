@@ -7,45 +7,140 @@ namespace Bag\TypeScript;
 use Bag\Bag;
 use Bag\Pipelines\Pipes\ProcessParameters;
 use Bag\Pipelines\Values\BagInput;
-use Bag\TypeScript\Reflection\BagReflectionProperty;
+use Bag\Values\Optional as BagOptional;
 use Exception;
 use Illuminate\Support\Collection;
-use ReflectionClass;
-use ReflectionProperty;
-use Spatie\TypeScriptTransformer\Structures\MissingSymbolsCollection;
-use Spatie\TypeScriptTransformer\Transformers\DtoTransformer;
+use PHPStan\PhpDocParser\Ast\Type\TypeNode;
+use Spatie\TypeScriptTransformer\Data\TransformationContext;
+use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
+use Spatie\TypeScriptTransformer\PhpNodes\PhpNamedTypeNode;
+use Spatie\TypeScriptTransformer\PhpNodes\PhpPropertyNode;
+use Spatie\TypeScriptTransformer\PhpNodes\PhpTypeNode;
+use Spatie\TypeScriptTransformer\PhpNodes\PhpUnionTypeNode;
+use Spatie\TypeScriptTransformer\Transformers\ClassTransformer;
+use Spatie\TypeScriptTransformer\TypeResolvers\Data\ParsedClass;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNode;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptProperty;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUnion;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUnknown;
 
 // @phpstan-ignore class.notFound
-if (class_exists(DtoTransformer::class)) {
-    class BagTransformer extends DtoTransformer
+if (class_exists(ClassTransformer::class)) {
+    class BagTransformer extends ClassTransformer
     {
-        /**
-         * @param ReflectionClass<Bag> $class
-         * @return array<BagReflectionProperty>
-         */
-        protected function resolveProperties(ReflectionClass $class): array
+        protected function shouldTransform(PhpClassNode $phpClassNode): bool
         {
-            /** @var array<BagReflectionProperty> $properties */
-            // @phpstan-ignore-next-line
-            $properties = collect(parent::resolveProperties($class))->map(function (ReflectionProperty $property) {
-                return new BagReflectionProperty($property->getDeclaringClass()->getName(), $property->getName());
-            })->toArray();
-
-            return $properties;
+            return $phpClassNode->getReflection(Bag::class);
         }
 
-        // @phpstan-ignore class.notFound
-        protected function transformPropertyName(ReflectionProperty $property, MissingSymbolsCollection $missingSymbols): string
+        protected function isPropertyOptional(
+            PhpPropertyNode $phpPropertyNode,
+            PhpClassNode $phpClassNode,
+            TypeScriptNode $type,
+            TransformationContext $context,
+        ): bool {
+            if ($this->propertyHasBagOptional($phpPropertyNode)) {
+                return true;
+            }
+
+            return parent::isPropertyOptional($phpPropertyNode, $phpClassNode, $type, $context);
+        }
+
+        protected function isPropertyReadonly(
+            PhpPropertyNode $phpPropertyNode,
+            PhpClassNode $phpClassNode,
+            TypeScriptNode $type,
+        ): bool {
+            return false;
+        }
+
+        protected function resolveTypeForProperty(
+            PhpClassNode $phpClassNode,
+            PhpPropertyNode $phpPropertyNode,
+            ?TypeNode $annotation,
+            ?ParsedClass $parsedClass = null,
+        ): TypeScriptNode {
+            if (! $phpPropertyNode->hasType()) {
+                return parent::resolveTypeForProperty($phpClassNode, $phpPropertyNode, $annotation, $parsedClass);
+            }
+
+            $phpType = $phpPropertyNode->getType();
+            if (! $phpType instanceof PhpUnionTypeNode) {
+                return parent::resolveTypeForProperty($phpClassNode, $phpPropertyNode, $annotation, $parsedClass);
+            }
+
+            $filteredTypes = array_values(array_filter(
+                $phpType->getTypes(),
+                fn (PhpTypeNode $type) => ! ($type instanceof PhpNamedTypeNode && $type->getName() === BagOptional::class)
+            ));
+
+            if (count($filteredTypes) === 0) {
+                return new TypeScriptUnknown();
+            }
+
+            if (count($filteredTypes) === 1) {
+                return $this->transpilePhpTypeNodeToTypeScriptTypeAction->execute($filteredTypes[0], $phpClassNode);
+            }
+
+            return new TypeScriptUnion(array_map(
+                fn (PhpTypeNode $type) => $this->transpilePhpTypeNodeToTypeScriptTypeAction->execute($type, $phpClassNode),
+                $filteredTypes
+            ));
+        }
+
+        protected function createProperty(
+            PhpClassNode $phpClassNode,
+            PhpPropertyNode $phpPropertyNode,
+            ?TypeNode $annotation,
+            TransformationContext $context,
+            ?ParsedClass $parsedClass = null,
+        ): ?TypeScriptProperty {
+            $property = parent::createProperty($phpClassNode, $phpPropertyNode, $annotation, $context, $parsedClass);
+
+            if ($property === null) {
+                return null;
+            }
+
+            $aliasedName = $this->getOutputAlias($phpClassNode->getName(), $phpPropertyNode->getName());
+            if ($aliasedName === $phpPropertyNode->getName()) {
+                return $property;
+            }
+
+            return new TypeScriptProperty(
+                $aliasedName,
+                $property->type,
+                $property->isOptional,
+                $property->isReadonly,
+            );
+        }
+
+        private function propertyHasBagOptional(PhpPropertyNode $phpPropertyNode): bool
+        {
+            if (! $phpPropertyNode->hasType()) {
+                return false;
+            }
+
+            $phpType = $phpPropertyNode->getType();
+            if (! $phpType instanceof PhpUnionTypeNode) {
+                return false;
+            }
+
+            foreach ($phpType->getTypes() as $subType) {
+                if ($subType instanceof PhpNamedTypeNode && $subType->getName() === BagOptional::class) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private function getOutputAlias(string $bagClass, string $propertyName): string
         {
             $pipe = new ProcessParameters();
-            /** @var class-string<Bag> $bagClassname */
-            $bagClassname = $property->getDeclaringClass()->getName();
-            $aliases = $pipe(new BagInput($bagClassname, Collection::empty()))->params->aliases();
+            /** @var class-string<Bag> $bagClass */
+            $aliases = $pipe(new BagInput($bagClass, Collection::empty()))->params->aliases();
 
-            // @phpstan-ignore class.noParent
-            $name = parent::transformPropertyName($property, $missingSymbols);
-
-            return $aliases['output'][$name] ?? $name;
+            return $aliases['output'][$propertyName] ?? $propertyName;
         }
     }
 } else {
